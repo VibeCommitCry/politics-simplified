@@ -1,0 +1,5 @@
+openai
+pydantic>=2
+python-dotenv
+pyyaml
+textstat
