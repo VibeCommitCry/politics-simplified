@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-`repo2-politics-simplified-plan.md` is leading: read it before changing behaviour. It is built in three steps (its section 12, prompts 1 to 3). **Step 1 is done** (test mode with the writer only). Not built yet: critic and 3-round loop, fallback through `models.yaml`, readability (step 2); FastAPI, Docker, pytest tests (step 3). Build only the step asked for.
+`repo2-politics-simplified-plan.md` is leading: read it before changing behaviour. It is built in three steps (its section 12, prompts 1 to 3). **Step 1 is done** (test mode with the writer only), plus one piece of step 2 built early: fallback to the next model on status 429/503, with a cooldown and a per-model rate limit. Not built yet: critic and 3-round loop, readability (step 2); FastAPI, Docker, the remaining pytest tests (step 3). Build only the step asked for.
 
 ## What this is
 
@@ -24,15 +24,20 @@ python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python -m simplifier --file tests/samples/example.json   # one request JSON in, one response JSON on stdout
 ```
 
-Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. There are no tests or linter yet (pytest arrives in step 3).
+Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. There is no linter.
 
-To exercise the pipeline without a key, pass a fake client: `pipeline.run(request, client=fake)` where `fake.chat.completions.create(...)` returns an object with `.choices[0].message.content`.
+```
+.venv\Scripts\pytest                                                   # all tests, no API key needed
+.venv\Scripts\pytest tests/test_llm.py::test_503_moves_to_next_model_without_retrying
+```
+
+To exercise the pipeline without a key or `models.yaml`, pass your own entries and a client factory: `pipeline.run(request, models, client_factory)`; see the fakes in `tests/test_llm.py`.
 
 ## Architecture
 
 - `simplifier/models.py`: the contract. `WriterOutput` is the strict shape the model must return; `SimplifyResponse` is what Symfony stores and allows empty content fields only when `error` is set. Rules are enforced **here in code**, not only in the prompt. The topic check needs the request's list, passed as validation context: `WriterOutput.model_validate(data, context={"allowed_topics": request.topics})`.
-- `simplifier/llm.py`: loads `models.yaml` (ordered list of OpenAI-compatible endpoints) and returns an `openai` client for one entry. `provider` in the response is the part of the entry's `name` before the first dash.
-- `simplifier/pipeline.py`: `build_writer_prompt` fills `prompts/v1/writer.md`; `run` calls the first model, validates, and turns any exception into an error response.
+- `simplifier/llm.py`: loads `models.yaml` (ordered list of OpenAI-compatible endpoints) and returns an `openai` client for one entry, always with `max_retries=0`. It also holds the in-memory, per-model state: a sliding-window rate limiter (optional `rpm` per entry; calls wait rather than exceed it) and the 60 s cooldowns. An entry's optional `options` map is passed as extra arguments to `chat.completions.create` and overrides the defaults. `provider` in the response is the part of the entry's `name` before the first dash.
+- `simplifier/pipeline.py`: `build_writer_prompt` fills `prompts/v1/writer.md`; `run` tries the models in order and turns any exception into an error response. A model that answers 429 or 503 goes into cooldown and the run restarts with the next one; models in cooldown are skipped; each skip is logged to stderr. A bad generation (the answer fails pydantic validation, or the API answers 400 with code `json_validate_failed`) is retried once on the same model, then the next model takes over without a cooldown; it is logged to stderr with the first 300 characters of the returned text. Any other failure (timeout, missing key) ends the run with an error and does not fall through.
 - `simplifier/__main__.py`: the `--file` test mode. Step 3's FastAPI endpoint must use the same `pipeline.run`.
 - `prompts/v1/`: versioned prompts with `{{placeholder}}` slots, filled in a single regex pass so placeholders inside the motie text are left alone. A prompt change that alters output means a new version directory.
 
