@@ -22,7 +22,7 @@ __main__.py   reads the JSON file and turns it into a SimplifyRequest   (models.
         │
         ▼
 pipeline.py   run(request)
-        │       1. fills prompts/v1/writer.md with the request data
+        │       1. concatenates prompts/v1/writer.md, generate_writer_template() and generate_answer_template(), filled with the request data
         │       2. takes the first model from models.yaml that is not cooling down   (llm.py)
         │       3. sends the prompt to the model; on 429/503 goes back to 2          (llm.py)
         │       4. checks the model's answer against the rules          (models.py)
@@ -116,7 +116,7 @@ This is where a request becomes a response.
 
 **`build_writer_prompt(request)`** makes the text that is sent to the model:
 
-1. Reads the template `prompts/v1/writer.md`. The template has slots like `{{title}}` and `{{text}}`.
+1. Concatenates `writer.md`, the data block from `generate_writer_template()` and `generate_answer_template()`. The data block has slots (one per `InputData` key) like `{{title}}` and `{{text}}`.
 2. Prepares a value for every slot: the title, the submitters as a list, the vote date and outcome, the parties for and against with their seats, the seat totals, the allowed topics and the motie text.
 3. Fills all slots in a single pass with a regular expression.
 

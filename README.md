@@ -26,7 +26,7 @@ python -m simplifier --file tests/samples/example.json
 This reads one request JSON, calls the writer once and prints one response JSON to stdout. The exit code is 0 on success and 1 when the response has an `error`.
 
 - The request format is the one Symfony will send: the motie text, the submitters, the vote per party and the list of topics to choose from. `tests/samples/example.json` is a made-up motie with made-up vote numbers.
-- The writer prompt is `prompts/v1/writer.md`. The filled-in prompt is returned in `prompts.writer`, with `prompt_version: "v1"`.
+- The writer prompt is `prompts/v1/writer.md` (fixed rules) + the per-call data block from `generate_writer_template()` (slots from the `InputData` enum) + the answer format from `generate_answer_template()` (keys from the `OutputData` enum). The filled-in prompt is returned in `prompts.writer`, with `prompt_version: "v1"`.
 - The model's answer is checked in code: hook at most 200 characters, exactly the four detail sections, 1 to 3 topics that all come from the request's list, relevance 1 to 5.
 - If anything fails (no API key, the model is unreachable, the answer breaks a rule), the output is still valid JSON with `error` filled, `critic_passed: false` and empty content fields (`hook: ""`, `detail: null`, `topics: []`, `relevance: null`).
 - There is no critic yet, so a successful run also has `critic_passed: false`, `confidence: 0.0` and `rounds: 1`.
