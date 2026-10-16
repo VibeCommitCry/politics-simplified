@@ -195,11 +195,22 @@ models:
 politics-simplified/
   simplifier/
     __main__.py        # `python -m simplifier --file tests/samples/x.json` (test mode, prints the response)
-    api.py             # FastAPI: POST /simplify, checks X-Api-Key
-    models.py          # pydantic request/response/critic models + validation rules
-    llm.py             # loads models.yaml, OpenAI-compatible client, fallback to the next model
-    pipeline.py        # writer ⇄ critic loop, max 3 rounds
-    readability.py     # Flesch-Douma before/after
+    api/
+      app.py           # FastAPI: POST /simplify, checks X-Api-Key
+      schemas.py       # pydantic request/response/critic models + validation rules
+      enums/           # JSON keys of the prompt data block and the writer answer
+    core/
+      pipeline.py      # writer ⇄ critic loop, max 3 rounds, fallback to the next model
+      readability.py   # Flesch-Douma before/after
+    prompt/
+      builder.py       # fills prompts/<version>/
+      sanitize.py      # markers around the untrusted motie text
+    ai/
+      registry.py      # loads models.yaml
+      client.py        # OpenAI-compatible client per entry
+    limits/
+      rate_limiter.py  # per-model rpm
+      cooldown.py      # 60 s cooldown after 429/503
   prompts/
     v1/writer.md
     v1/critic.md

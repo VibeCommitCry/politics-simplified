@@ -6,9 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from simplifier import llm, pipeline
-from simplifier.llm import ModelEntry, RateLimiter
-from simplifier.models import SimplifyRequest
+from simplifier import limits
+from simplifier.core import pipeline
+from simplifier.limits import cooldown, rate_limiter
+from simplifier.ai.registry import ModelEntry
+from simplifier.limits.rate_limiter import RateLimiter
+from simplifier.api.schemas import SimplifyRequest
 
 SAMPLE = Path(__file__).parent / "samples" / "example.json"
 
@@ -68,9 +71,9 @@ def entry(name: str, **extra) -> ModelEntry:
 
 @pytest.fixture(autouse=True)
 def clean_state():
-    llm.reset_state()
+    limits.reset_state()
     yield
-    llm.reset_state()
+    limits.reset_state()
 
 
 @pytest.fixture
@@ -109,12 +112,12 @@ def test_model_in_cooldown_is_skipped_on_the_next_run(request_, capsys):
 
 def test_cooldown_ends_after_60_seconds(request_, monkeypatch):
     now = [1000.0]
-    monkeypatch.setattr(llm.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(rate_limiter.time, "monotonic", lambda: now[0])
     first = entry("first-model")
     client = FakeClient([FakeStatusError(503)])
     pipeline.run(request_, [first], lambda e: client)
 
-    now[0] += llm.COOLDOWN_SECONDS
+    now[0] += cooldown.COOLDOWN_SECONDS
     response = pipeline.run(request_, [first], lambda e: client)
 
     assert response.error is None
@@ -138,7 +141,7 @@ def test_other_errors_do_not_cool_down(request_):
 
     assert "400" in response.error
     assert clients["second-model"].calls == 0
-    assert llm.cooldown_status(first) is None
+    assert cooldown.cooldown_status(first) is None
 
 
 def test_rate_limiter_waits_instead_of_exceeding_rpm(monkeypatch):
@@ -149,8 +152,8 @@ def test_rate_limiter_waits_instead_of_exceeding_rpm(monkeypatch):
         sleeps.append(seconds)
         now[0] += seconds
 
-    monkeypatch.setattr(llm.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(llm.time, "sleep", fake_sleep)
+    monkeypatch.setattr(rate_limiter.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(rate_limiter.time, "sleep", fake_sleep)
     limiter = RateLimiter(rpm=2)
 
     limiter.wait()
@@ -209,7 +212,7 @@ def test_two_bad_generations_fall_back_to_the_next_model(request_):
 
     assert response.model == second.model
     assert clients["first-model"].calls == 2
-    assert llm.cooldown_status(first) is None  # a bad answer is not a busy provider
+    assert cooldown.cooldown_status(first) is None  # a bad answer is not a busy provider
 
 
 def test_bad_generations_on_every_model_give_error_response(request_):

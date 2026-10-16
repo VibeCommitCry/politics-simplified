@@ -5,8 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .models import SimplifyRequest, SimplifyResponse
-from .pipeline import error_response, run
+from .api.schemas import SimplifyRequest, SimplifyResponse
+from .core.pipeline import error_response, run
 
 
 def simplify_file(path: Path) -> SimplifyResponse:

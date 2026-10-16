@@ -2,15 +2,21 @@
 
 This describes the code as it is after step 1 of the plan (the test mode with the writer only), plus the fallback to the next model when one is busy. There is no critic and no HTTP service yet.
 
-All Python code lives in the `simplifier/` package. There are five files.
+All Python code lives in the `simplifier/` package, split into folders by layer.
 
 | File | Job in one line |
 |---|---|
-| `__init__.py` | Marks the folder as a package |
+| `__init__.py` | Marks the folder as a package and defines `REPO_ROOT` |
 | `__main__.py` | The command you run: reads a request file, prints a response |
-| `models.py` | Defines the shape of the request and the response, and checks the rules |
-| `llm.py` | Reads `models.yaml`, connects to a model provider, tracks rate limits and cooldowns |
-| `pipeline.py` | Builds the prompt, calls a model (the next one if it is busy), checks the answer |
+| `api/schemas.py` | Defines the shape of the request and the response, and checks the rules |
+| `api/enums/` | The keys of the prompt's data block and of the writer's JSON answer |
+| `ai/registry.py` | Reads `models.yaml` |
+| `ai/client.py` | Connects to a model provider |
+| `limits/rate_limiter.py` | Keeps each model under its requests-per-minute limit |
+| `limits/cooldown.py` | Leaves a busy model alone for 60 seconds |
+| `prompt/builder.py` | Builds the writer prompt |
+| `prompt/sanitize.py` | Keeps the untrusted motie text inside its markers |
+| `core/pipeline.py` | Calls a model (the next one if it is busy) and checks the answer |
 
 ## How one run flows
 
@@ -18,14 +24,14 @@ All Python code lives in the `simplifier/` package. There are five files.
 python -m simplifier --file tests/samples/example.json
         │
         ▼
-__main__.py   reads the JSON file and turns it into a SimplifyRequest   (models.py)
+__main__.py   reads the JSON file and turns it into a SimplifyRequest   (api/schemas.py)
         │
         ▼
-pipeline.py   run(request)
-        │       1. concatenates prompts/v1/writer.md, generate_writer_template() and generate_answer_template(), filled with the request data
-        │       2. takes the first model from models.yaml that is not cooling down   (llm.py)
-        │       3. sends the prompt to the model; on 429/503 goes back to 2          (llm.py)
-        │       4. checks the model's answer against the rules          (models.py)
+core/pipeline.py   run(request)
+        │       1. builds the writer prompt from prompts/v1/writer.md and the request   (prompt/builder.py)
+        │       2. takes the first model from models.yaml that is not cooling down   (ai/registry.py, limits/cooldown.py)
+        │       3. waits for the rate limit and sends the prompt; on 429/503 goes back to 2   (limits/rate_limiter.py, ai/client.py)
+        │       4. checks the model's answer against the rules          (api/schemas.py)
         │       5. returns a SimplifyResponse, or an error response
         ▼
 __main__.py   prints the response as JSON, exit code 0 (ok) or 1 (error)
@@ -33,7 +39,7 @@ __main__.py   prints the response as JSON, exit code 0 (ok) or 1 (error)
 
 ## `__init__.py`
 
-One line of documentation and nothing else. Python needs this file to treat `simplifier/` as a package, which is what makes `python -m simplifier` and `from simplifier import ...` work.
+Python needs this file to treat `simplifier/` as a package, which is what makes `python -m simplifier` and `from simplifier import ...` work. It also defines `REPO_ROOT`, worked out from the file's own location, so the code finds `models.yaml`, `.env` and `prompts/` no matter which folder you run it from.
 
 ## `__main__.py`: the test mode
 
@@ -56,7 +62,7 @@ Python runs this file when you type `python -m simplifier`. It has two functions
 
 Nothing else is ever printed to stdout, so the output can always be parsed as JSON.
 
-## `models.py`: the contract and the rules
+## `api/schemas.py`: the contract and the rules
 
 This file uses pydantic. A pydantic model is a class that describes what a piece of JSON must look like; when you validate data against it, pydantic either gives you a typed object or raises an error that says exactly which field is wrong. This is how the plan's "rules checked in code, not only in the prompt" are enforced.
 
@@ -87,13 +93,13 @@ The validator `content_or_error` makes sure a response is always one of two kind
 
 `WriterOutput` and `SimplifyResponse` are separate on purpose. The first is strict, because it judges what the model wrote. The second has to be able to describe a failed run too.
 
-## `llm.py`: models and connections
+## `ai/`: models and connections
 
-This file knows where the models are and how to reach them. It knows nothing about moties or prompts.
+This folder knows where the models are and how to reach them. It knows nothing about moties or prompts.
 
-- **`ModelEntry`** is one entry from `models.yaml`: `name`, `base_url`, `model`, `api_key_env`, an optional `rpm` (requests per minute) and an optional `options` map with extra arguments for the request, such as `max_tokens`. Its `provider` property is the part of the name before the first dash, so `gemini-flash` gives `gemini`. That value ends up in the response.
+- **`ModelEntry`** (`registry.py`) is one entry from `models.yaml`: `name`, `base_url`, `model`, `api_key_env`, an optional `rpm` (requests per minute) and an optional `options` map with extra arguments for the request, such as `max_tokens`. Its `provider` property is the part of the name before the first dash, so `gemini-flash` gives `gemini`. That value ends up in the response.
 - **`load_models()`** reads `models.yaml`, validates every entry and returns them in file order. That order is the order in which models will be tried. An empty file raises an error.
-- **`client_for(entry)`** returns a ready-to-use `openai` client for one entry:
+- **`client_for(entry)`** (`client.py`) returns a ready-to-use `openai` client for one entry:
   1. Loads `.env` so the keys become environment variables.
   2. Looks up the variable named in `api_key_env`. The YAML holds the *name* of the variable, never the key itself.
   3. Raises a clear error if the key is missing.
@@ -101,20 +107,18 @@ This file knows where the models are and how to reach them. It knows nothing abo
 
 One `openai` client works for every provider because Gemini, Groq and NVIDIA all offer an OpenAI-compatible endpoint; only the URL and the key differ.
 
-The file also keeps two small pieces of memory per model. Both live only in the running process; nothing is saved to disk.
+## `limits/`: rate limit and cooldown
 
-- **The rate limiter.** `RateLimiter` remembers the times of the calls in the last 60 seconds. `wait()` checks whether there is still room under the `rpm` limit; if not, it sleeps until the oldest call is 60 seconds old. `wait_for_rate_limit(entry)` is the function the pipeline calls before each request; it does nothing for a model without `rpm`.
-- **The cooldowns.** `start_cooldown(entry, status)` notes that a model should be left alone for 60 seconds and which status code caused it. `cooldown_status(entry)` returns that status code while the cooldown lasts, and `None` once it is over.
+This folder keeps two small pieces of memory per model. Both live only in the running process; nothing is saved to disk.
 
-`log_skip` writes one line to stderr when a model is skipped. `log_bad_generation` does the same for an unusable answer, with the first 300 characters of the text the model returned. `reset_state` empties both memories; the tests use it to start clean.
+- **The rate limiter** (`rate_limiter.py`). `RateLimiter` remembers the times of the calls in the last 60 seconds. `wait()` checks whether there is still room under the `rpm` limit; if not, it sleeps until the oldest call is 60 seconds old. `wait_for_rate_limit(entry)` is the function the pipeline calls before each request; it does nothing for a model without `rpm`.
+- **The cooldowns** (`cooldown.py`). `start_cooldown(entry, status)` notes that a model should be left alone for 60 seconds and which status code caused it. `cooldown_status(entry)` returns that status code while the cooldown lasts, and `None` once it is over.
 
-`REPO_ROOT` is worked out from the file's own location, so the code finds `models.yaml`, `.env` and `prompts/` no matter which folder you run it from.
+`log_skip` (`cooldown.py`) writes one line to stderr when a model is skipped. `limits.reset_state()` empties both memories; the tests use it to start clean.
 
-## `pipeline.py`: the actual work
+## `prompt/`: building the prompt
 
-This is where a request becomes a response.
-
-**`build_writer_prompt(request)`** makes the text that is sent to the model:
+**`build_writer_prompt(request)`** (`builder.py`) makes the text that is sent to the model:
 
 1. Concatenates `writer.md`, the data block from `generate_writer_template()` and `generate_answer_template()`. The data block has slots (one per `InputData` key) like `{{title}}` and `{{text}}`.
 2. Prepares a value for every slot: the title, the submitters as a list, the vote date and outcome, the parties for and against with their seats, the seat totals, the allowed topics and the motie text.
@@ -123,10 +127,14 @@ This is where a request becomes a response.
 Three details matter here:
 
 - **The totals are added up in Python**, not by the model. Models make arithmetic mistakes; `sum()` does not.
-- **The motie text is treated as untrusted.** It is placed between the markers `<<<MOTIETEKST_BEGIN>>>` and `<<<MOTIETEKST_EINDE>>>`, and the prompt tells the model never to follow instructions found there. The helper `_untrusted` first removes those markers from any outside text, so a motie cannot "close" the block early and smuggle in instructions.
+- **The motie text is treated as untrusted.** It is placed between the markers `<<<MOTIETEKST_BEGIN>>>` and `<<<MOTIETEKST_EINDE>>>`, and the prompt tells the model never to follow instructions found there. The markers and the helper `untrusted` live in `sanitize.py`; it first removes those markers from any outside text, so a motie cannot "close" the block early and smuggle in instructions.
 - **The single pass** means a slot name that happens to appear inside the motie text (for example `{{topics}}`) stays as plain text and is not filled in.
 
 `_format_parties` is a small helper that writes one line per party and picks "zetel" or "zetels" correctly.
+
+## `core/pipeline.py`: the actual work
+
+This is where a request becomes a response. `log_bad_generation` writes one line to stderr for an unusable answer, with the first 300 characters of the text the model returned.
 
 **`error_response(...)`** builds a valid `SimplifyResponse` for a failed run: the error message, `critic_passed: false`, and whatever is already known (the model, the provider, the prompt).
 
@@ -159,5 +167,5 @@ Because there is no critic yet, a successful run still reports `critic_passed: f
 
 ## What is not here yet
 
-- **Step 2:** the critic, the loop of up to 3 rounds and `readability.py`.
-- **Step 3:** `api.py` (the FastAPI service), the Dockerfile and the tests for the pydantic rules.
+- **Step 2:** the critic, the loop of up to 3 rounds and `core/readability.py`.
+- **Step 3:** `api/app.py` (the FastAPI service), the Dockerfile and the tests for the pydantic rules.
