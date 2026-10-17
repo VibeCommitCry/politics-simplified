@@ -1,1 +1,2 @@
 tests/golden/*.txt -text
+prompts/**/*.md text eol=lf

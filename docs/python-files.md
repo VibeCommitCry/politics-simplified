@@ -118,17 +118,19 @@ This folder keeps two small pieces of memory per model. Both live only in the ru
 
 ## `prompt/`: building the prompt
 
-**`build_writer_prompt(request)`** (`builder.py`) makes the text that is sent to the model:
+**`build_writer_prompt(request)`** and **`build_critic_prompt(request, output)`** (`builder.py`) make the text that is sent to the model. All prompt text lives in `prompts/v1/`; Python only fills and joins it:
 
-1. Concatenates `writer.md`, the data block from `generate_writer_template()` and `generate_answer_template()`. The data block has slots (one per `InputData` key) like `{{title}}` and `{{text}}`.
-2. Prepares a value for every slot: the title, the submitters as a list, the vote date and outcome, the parties for and against with their seats, the seat totals, the allowed topics and the motie text.
-3. Fills all slots in a single pass with a regular expression.
+1. Reads `writer.md` (or `critic.md`) as-is.
+2. Prepares a value for every slot of `data.md`: the title, the submitters as a list, the vote date and outcome, the parties for and against with their seats, the seat totals, the allowed topics and the motie text.
+3. Fills the templates with `string.Template` (`data.md`, from round 2 `feedback.md`, and `answer.md` or `critic_answer.md`) and joins the parts with a blank line.
+
+Placeholders like `$title` are runtime values; UPPERCASE ones like `$HOOK` are JSON keys taken from the `OutputData` / `CriticData` enums. A literal `$` is written `$$`, and a missing value raises `KeyError` instead of becoming empty.
 
 Three details matter here:
 
 - **The totals are added up in Python**, not by the model. Models make arithmetic mistakes; `sum()` does not.
 - **The motie text is treated as untrusted.** It is placed between the markers `<<<MOTIETEKST_BEGIN>>>` and `<<<MOTIETEKST_EINDE>>>`, and the prompt tells the model never to follow instructions found there. The markers and the helper `untrusted` live in `sanitize.py`; it first removes those markers from any outside text, so a motie cannot "close" the block early and smuggle in instructions.
-- **The single pass** means a slot name that happens to appear inside the motie text (for example `{{topics}}`) stays as plain text and is not filled in.
+- **Filled values are never re-scanned**, so a slot name that happens to appear inside the motie text (for example `$topics`) stays as plain text and is not filled in.
 
 `_format_parties` is a small helper that writes one line per party and picks "zetel" or "zetels" correctly.
 
