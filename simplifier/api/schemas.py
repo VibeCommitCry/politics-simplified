@@ -88,6 +88,24 @@ class WriterOutput(BaseModel):
         return topics
 
 
+class CriticOutput(BaseModel):
+    """What the critic model must return. `passed` and `problems` must agree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool
+    confidence: float = Field(ge=0, le=1)
+    problems: list[str]
+
+    @model_validator(mode="after")
+    def passed_matches_problems(self) -> "CriticOutput":
+        if self.passed and self.problems:
+            raise ValueError("passed is true but problems were listed")
+        if not self.passed and not self.problems:
+            raise ValueError("passed is false but no problems were listed")
+        return self
+
+
 class Readability(BaseModel):
     before: float
     after: float

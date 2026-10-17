@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-`repo2-politics-simplified-plan.md` is leading: read it before changing behaviour. It is built in three steps (its section 12, prompts 1 to 3). **Step 1 is done** (test mode with the writer only), plus one piece of step 2 built early: fallback to the next model on status 429/503, with a cooldown and a per-model rate limit. Not built yet: critic and 3-round loop, readability (step 2); FastAPI, Docker, the remaining pytest tests (step 3). Build only the step asked for.
+`repo2-politics-simplified-plan.md` is leading: read it before changing behaviour. It is built in three steps (its section 12, prompts 1 to 3). **Steps 1 and 2 are done**: test mode, the writer ⇄ critic loop (max 3 rounds), readability, and fallback to the next model on status 429/503 with a cooldown and a per-model rate limit. Not built yet (step 3): FastAPI, Docker, the remaining pytest tests. Build only the step asked for.
 
 ## What this is
 
@@ -21,7 +21,7 @@ It is the AI half of a larger system. A separate Symfony (PHP, MySQL) backend fe
 
 ```
 python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m simplifier --file tests/samples/example.json   # one request JSON in, one response JSON on stdout
+.venv\Scripts\python -m simplifier --file tests/samples/input-example.json   # one request JSON in, one response JSON on stdout
 ```
 
 Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. There is no linter.
@@ -35,22 +35,23 @@ To exercise the pipeline without a key or `models.yaml`, pass your own entries a
 
 ## Architecture
 
-The package is split by layer: `api/` (contract), `core/` (pipeline, later the critic loop), `prompt/`, `ai/` (models and clients), `limits/` (rate limit and cooldown). `REPO_ROOT` lives in `simplifier/__init__.py`.
+The package is split by layer: `api/` (contract), `core/` (pipeline with the critic loop, critic, readability), `prompt/`, `ai/` (models and clients), `limits/` (rate limit and cooldown). `REPO_ROOT` lives in `simplifier/__init__.py`.
 
 - `simplifier/api/schemas.py` (+ `api/enums/`): the contract. `WriterOutput` is the strict shape the model must return; `SimplifyResponse` is what Symfony stores and allows empty content fields only when `error` is set. Rules are enforced **here in code**, not only in the prompt. The topic check needs the request's list, passed as validation context: `WriterOutput.model_validate(data, context={"allowed_topics": request.topics})`. Step 3's FastAPI app belongs in `api/` too.
 - `simplifier/ai/`: `registry.py` loads `models.yaml` (ordered list of OpenAI-compatible endpoints); `client.py` returns an `openai` client for one entry, always with `max_retries=0`. An entry's optional `options` map is passed as extra arguments to `chat.completions.create` and overrides the defaults. `provider` in the response is the part of the entry's `name` before the first dash.
 - `simplifier/limits/`: the in-memory, per-model state. `rate_limiter.py` is a sliding-window limiter (optional `rpm` per entry; calls wait rather than exceed it); `cooldown.py` holds the 60 s cooldowns. `limits.reset_state()` clears both (tests).
-- `simplifier/prompt/`: `builder.py` (`build_writer_prompt`, `PROMPT_VERSION`) fills `prompts/v1/writer.md`; `sanitize.py` holds the untrusted-text markers.
-- `simplifier/core/pipeline.py`: `run` tries the models in order and turns any exception into an error response. A model that answers 429 or 503 goes into cooldown and the run restarts with the next one; models in cooldown are skipped; each skip is logged to stderr. A bad generation (the answer fails pydantic validation, or the API answers 400 with code `json_validate_failed`) is retried once on the same model, then the next model takes over without a cooldown; it is logged to stderr with the first 300 characters of the returned text. Any other failure (timeout, missing key) ends the run with an error and does not fall through.
+- `simplifier/prompt/`: `builder.py` (`build_writer_prompt`, `build_critic_prompt`, `PROMPT_VERSION`) appends to the fixed `prompts/v1/writer.md` / `critic.md` a data block built from the request with f-strings (JSON keys from the enums in `api/enums/`), then the answer format. From round 2 the writer prompt also gets its previous answer and the critic's problems; every call is one stateless user message. `sanitize.py` holds the untrusted-text markers.
+- `simplifier/core/pipeline.py`: `run` tries the models in order and turns any exception into an error response. One model does the whole run: up to 3 rounds of writer then critic (`core/critic.py`, temperature 0, returns `CriticOutput`), stopping when the critic passes. Not passing after round 3 is not an error: the content is returned with `critic_passed: false` for manual review. The response holds the last round's verdict, confidence and prompts. Each round logs `round model=… round=N passed=… confidence=… duration=…s` to stderr. A model that answers 429 or 503 goes into cooldown and the run restarts from round 1 with the next one; models in cooldown are skipped; each skip is logged to stderr. A bad generation (the answer fails pydantic validation, or the API answers 400 with code `json_validate_failed`) is retried once for that call, then the next model restarts the run without a cooldown; it is logged to stderr with the first 300 characters of the returned text. Any other failure (timeout, missing key) ends the run with an error and does not fall through. `core/generation.py` holds the shared JSON call.
+- `simplifier/core/readability.py`: Flesch-Douma (textstat, `nl`) of the motie text (`before`) and of the three prose detail sections without the word list (`after`); `null` on an error.
 - `simplifier/__main__.py`: the `--file` test mode. Step 3's FastAPI endpoint must use the same `pipeline.run`.
-- `prompts/v1/`: versioned prompts with `{{placeholder}}` slots, filled in a single regex pass so placeholders inside the motie text are left alone. A prompt change that alters output means a new version directory.
+- `prompts/v1/`: the fixed, versioned prompt text; the per-call data is appended in code, so nothing in the motie text is ever parsed as a template. A prompt change that alters output means a new version directory.
 
 Rules that span files:
 
-- **Motie text is untrusted data.** It sits between `TEXT_BEGIN`/`TEXT_END` markers (defined in `prompt/sanitize.py`), the markers are stripped from all external strings first, and the prompt tells the model never to follow instructions inside it.
+- **Motie text is untrusted data.** So is model output fed into a later prompt. They sit between `TEXT_BEGIN`/`TEXT_END` and `ANSWER_BEGIN`/`ANSWER_END` markers (defined in `prompt/sanitize.py`), the markers are stripped from all external strings first, and the prompt tells the model never to follow instructions inside it.
 - **Facts are never generated.** Names, numbers, dates and the vote pass through from the request; seat totals are summed in code, not by the model.
-- **One model per run** (step 2): writer and critic use the same model; on a model error restart the *whole run* with the next entry in `models.yaml`, never switch mid-run.
-- **`confidence` is load-bearing**: a later phase escalates to a bigger model when it is low. It is 0.0 until the critic exists.
+- **One model per run**: writer and critic use the same model; on a model error restart the *whole run* with the next entry in `models.yaml`, never switch mid-run.
+- **`confidence` is load-bearing**: a later phase escalates to a bigger model when it is low. It is the last round's critic confidence.
 - **stdout is the response.** Any logging goes to stderr.
 
 ## Conventions

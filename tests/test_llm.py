@@ -11,9 +11,10 @@ from simplifier.core import pipeline
 from simplifier.limits import cooldown, rate_limiter
 from simplifier.ai.registry import ModelEntry
 from simplifier.limits.rate_limiter import RateLimiter
-from simplifier.api.schemas import SimplifyRequest
+from simplifier.api.schemas import Detail, SimplifyRequest
+from simplifier.core import readability
 
-SAMPLE = Path(__file__).parent / "samples" / "example.json"
+SAMPLE = Path(__file__).parent / "samples" / "input-example.json"
 
 GOOD_ANSWER = {
     "hook": "Moet je huur een jaar gelijk blijven?",
@@ -38,24 +39,49 @@ class FakeStatusError(Exception):
         self.body = body
 
 
-class FakeClient:
-    """Works through `failures` first (one per call), then returns a good answer.
+PASS_VERDICT = {"passed": True, "confidence": 0.9, "problems": []}
 
-    A failure is an exception to raise, or a string to return as the model's text.
+CRITIC_PROMPT_MARK = "## Het antwoord van de schrijver"
+
+
+def fail_verdict(*problems: str) -> str:
+    return json.dumps({"passed": False, "confidence": 0.4, "problems": list(problems)})
+
+
+class FakeClient:
+    """Writer calls work through `failures` first (one per call), then return a good answer.
+    Critic calls work through `verdicts` the same way, then pass.
+
+    A failure or verdict is an exception to raise, or a string to return as the model's text.
+    `calls` counts writer calls only; critic calls are in `critic_calls`.
     """
 
-    def __init__(self, failures=()):
+    def __init__(self, failures=(), verdicts=()):
         self.failures = list(failures)
+        self.verdicts = list(verdicts)
         self.calls = 0
+        self.critic_calls = 0
         self.last_arguments = {}
+        self.writer_prompts = []
+        self.critic_arguments = {}
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
+        prompt = kwargs["messages"][0]["content"]
+        if CRITIC_PROMPT_MARK in prompt:
+            self.critic_calls += 1
+            self.critic_arguments = kwargs
+            return self._answer(self.verdicts, json.dumps(PASS_VERDICT))
         self.calls += 1
         self.last_arguments = kwargs
-        content = json.dumps(GOOD_ANSWER)
-        if self.failures:
-            failure = self.failures.pop(0)
+        self.writer_prompts.append(prompt)
+        return self._answer(self.failures, json.dumps(GOOD_ANSWER))
+
+    @staticmethod
+    def _answer(queue, default):
+        content = default
+        if queue:
+            failure = queue.pop(0)
             if isinstance(failure, Exception):
                 raise failure
             content = failure
@@ -232,3 +258,122 @@ def test_options_are_passed_to_the_request(request_):
     assert client.last_arguments["max_tokens"] == 4000
     assert client.last_arguments["reasoning_effort"] == "low"
     assert client.last_arguments["model"] == first.model
+
+
+# --- Writer ⇄ critic loop -----------------------------------------------------
+
+
+def test_critic_passes_in_round_one(request_, capsys):
+    first = entry("first-model")
+    client = FakeClient()
+
+    response = pipeline.run(request_, [first], lambda e: client)
+
+    assert response.error is None
+    assert response.critic_passed is True
+    assert response.rounds == 1
+    assert response.confidence == 0.9
+    assert response.critic_problems == []
+    assert CRITIC_PROMPT_MARK in response.prompts.critic
+    assert client.critic_arguments["temperature"] == 0.0
+    assert "round model=first-model-model round=1 passed=true confidence=0.90" in capsys.readouterr().err
+
+
+def test_critic_problems_go_to_the_writer_in_the_next_round(request_):
+    first = entry("first-model")
+    client = FakeClient(verdicts=[fail_verdict("De datum klopt niet.")])
+
+    response = pipeline.run(request_, [first], lambda e: client)
+
+    assert response.critic_passed is True
+    assert response.rounds == 2
+    assert client.calls == 2
+    assert "De datum klopt niet." not in client.writer_prompts[0]
+    assert "De datum klopt niet." in client.writer_prompts[1]
+    assert GOOD_ANSWER["hook"] in client.writer_prompts[1]  # the previous answer is shown
+    assert response.prompts.writer == client.writer_prompts[1]  # only the last round is kept
+
+
+def test_not_passed_after_three_rounds_is_returned_for_review(request_):
+    first = entry("first-model")
+    client = FakeClient(verdicts=[fail_verdict("a"), fail_verdict("b"), fail_verdict("c")])
+
+    response = pipeline.run(request_, [first], lambda e: client)
+
+    assert response.error is None
+    assert response.critic_passed is False
+    assert response.rounds == 3
+    assert response.confidence == 0.4
+    assert response.critic_problems == ["c"]
+    assert response.hook == GOOD_ANSWER["hook"]
+    assert client.critic_calls == 3
+
+
+def test_critic_503_restarts_the_run_on_the_next_model(request_):
+    first, second = entry("first-model"), entry("second-model")
+    clients = {
+        "first-model": FakeClient(verdicts=[fail_verdict("a"), FakeStatusError(503)]),
+        "second-model": FakeClient(),
+    }
+
+    response = pipeline.run(request_, [first, second], lambda e: clients[e.name])
+
+    assert response.model == second.model
+    assert response.rounds == 1  # started over, not continued at round 2
+    assert clients["second-model"].calls == 1
+    assert cooldown.cooldown_status(first) == 503
+
+
+def test_inconsistent_verdict_is_retried(request_):
+    first = entry("first-model")
+    client = FakeClient(verdicts=[json.dumps({"passed": True, "confidence": 0.9, "problems": ["x"]})])
+
+    response = pipeline.run(request_, [first], lambda e: client)
+
+    assert response.critic_passed is True
+    assert client.critic_calls == 2
+    assert client.calls == 1  # only the critic call was retried
+
+
+def test_two_bad_verdicts_fall_back_to_the_next_model(request_):
+    first, second = entry("first-model"), entry("second-model")
+    clients = {"first-model": FakeClient(verdicts=["nope", "nope"]), "second-model": FakeClient()}
+
+    response = pipeline.run(request_, [first, second], lambda e: clients[e.name])
+
+    assert response.model == second.model
+    assert cooldown.cooldown_status(first) is None
+
+
+# --- Readability --------------------------------------------------------------
+
+
+def test_readability_scores_original_and_detail(request_):
+    response = pipeline.run(request_, [entry("first-model")], lambda e: FakeClient())
+
+    detail = Detail.model_validate(GOOD_ANSWER["detail"])
+    assert response.readability.before == readability.flesch_douma(request_.text)
+    assert response.readability.after == readability.flesch_douma(readability.detail_text(detail))
+
+
+def test_readability_leaves_out_the_word_list():
+    detail = Detail(
+        waar_gaat_het_over="Een.",
+        wat_betekent_het_voor_jou="Twee.",
+        wat_is_er_besloten="Drie.",
+        moeilijke_woorden=[{"woord": "motie", "betekenis": "verzoek"}],
+    )
+    assert readability.detail_text(detail) == "Een.\n\nTwee.\n\nDrie."
+
+
+def test_dutch_score_is_higher_for_simpler_text():
+    simple = "De kat zit op de mat. Het is warm."
+    hard = "Overwegende dat de regering onvoldoende uitvoeringsmogelijkheden heeft geïnventariseerd."
+    assert readability.flesch_douma(simple) > readability.flesch_douma(hard)
+
+
+def test_error_response_has_no_readability(request_):
+    response = pipeline.run(request_, [entry("first-model")], lambda e: FakeClient([FakeStatusError(503)]))
+
+    assert response.error is not None
+    assert response.readability is None
