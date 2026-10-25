@@ -1,5 +1,9 @@
 # politics-simplified
 
+[![CI](https://github.com/VibeCommitCry/politics-simplified/actions/workflows/ci.yml/badge.svg)](https://github.com/VibeCommitCry/politics-simplified/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.14-blue)
+
 A stateless Python service that turns one voted Tweede Kamer motie into plain Dutch (B1 level) for a mobile feed: a short hook, a detailed text in four fixed sections, topics and a relevance score.
 
 It has no database and fetches nothing itself. A separate Symfony backend collects the Tweede Kamer data, sends one motie per request and stores the result. The full design is in [repo2-politics-simplified-plan.md](repo2-politics-simplified-plan.md).
