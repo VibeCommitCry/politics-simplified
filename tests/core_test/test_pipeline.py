@@ -104,7 +104,10 @@ def test_json_validate_failed_from_the_api_is_retried(request_, capsys):
 
 def test_two_bad_generations_fall_back_to_the_next_model(request_):
     first, second = entry("first-model"), entry("second-model")
-    clients = {"first-model": FakeClient(["not json", "still not json"]), "second-model": FakeClient()}
+    clients = {
+        "first-model": FakeClient(["not json", "still not json"]),
+        "second-model": FakeClient(),
+    }
 
     response = pipeline.run(request_, [first, second], lambda e: clients[e.name])
 
@@ -137,7 +140,10 @@ def test_critic_passes_in_round_one(request_, capsys):
     assert response.critic_problems == []
     assert CRITIC_PROMPT_MARK in response.prompts.critic
     assert client.critic_arguments["temperature"] == 0.0
-    assert "round model=first-model-model round=1 passed=true confidence=0.90" in capsys.readouterr().err
+    assert (
+        "round model=first-model-model round=1 passed=true confidence=0.90"
+        in capsys.readouterr().err
+    )
 
 
 def test_critic_problems_go_to_the_writer_in_the_next_round(request_):
@@ -212,7 +218,9 @@ def test_fatal_error_in_round_two_keeps_the_prompts(request_):
 
 def test_inconsistent_verdict_is_retried(request_):
     first = entry("first-model")
-    client = FakeClient(verdicts=[json.dumps({"passed": True, "confidence": 0.9, "problems": ["x"]})])
+    client = FakeClient(
+        verdicts=[json.dumps({"passed": True, "confidence": 0.9, "problems": ["x"]})]
+    )
 
     response = pipeline.run(request_, [first], lambda e: client)
 

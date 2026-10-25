@@ -1,6 +1,7 @@
 """Builds the writer and critic prompts from prompts/<version>/ and the request.
 
-All prompt text lives in prompts/<version>/*.md; this module only loads files, computes values and joins parts:
+All prompt text lives in prompts/<version>/*.md; this module only loads files, computes values
+and joins parts:
 
 - writer.md, critic.md: the fixed rules, read as-is.
 - data.md: the request data block (shared by writer and critic).
@@ -12,8 +13,8 @@ Templates use string.Template placeholders:
 - lowercase (`$title`, `$vote_date`, `$text`): runtime values computed here.
 - UPPERCASE (`$HOOK`, `$PASSED`): JSON keys, taken from the OutputData / CriticData enums.
 
-A literal `$` in a template is written `$$`. Substituted values are never re-scanned, so `$` or `{}` in the
-request text is safe. A missing placeholder raises KeyError.
+A literal `$` in a template is written `$$`. Substituted values are never re-scanned, so `$` or
+`{}` in the request text is safe. A missing placeholder raises KeyError.
 """
 
 from enum import Enum
@@ -38,23 +39,28 @@ def build_writer_prompt(
 ) -> str:
     """Joins writer.md, the data block filled from the request, and the answer format.
 
-    From the second round on, `previous` and `problems` add the earlier answer and the critic's problems.
+    From the second round on, `previous` and `problems` add the earlier answer and the critic's
+    problems.
     """
     parts = [static(version, "writer"), render(version, "data", **_request_values(request))]
     if previous is not None:
-        parts.append(render(
-            version,
-            "feedback",
-            answer_begin=ANSWER_BEGIN,
-            answer_end=ANSWER_END,
-            previous=untrusted(previous.model_dump_json(indent=2)),
-            problem_list="\n".join(f"- {untrusted(problem)}" for problem in problems or []),
-        ))
+        parts.append(
+            render(
+                version,
+                "feedback",
+                answer_begin=ANSWER_BEGIN,
+                answer_end=ANSWER_END,
+                previous=untrusted(previous.model_dump_json(indent=2)),
+                problem_list="\n".join(f"- {untrusted(problem)}" for problem in problems or []),
+            )
+        )
     parts.append(render(version, "answer", **_keys(OutputData)))
     return "\n\n".join(parts) + "\n"
 
 
-def build_critic_prompt(request: SimplifyRequest, output: WriterOutput, version: str = PROMPT_VERSION) -> str:
+def build_critic_prompt(
+    request: SimplifyRequest, output: WriterOutput, version: str = PROMPT_VERSION
+) -> str:
     """Joins critic.md, the same data block, the writer's answer and the verdict format."""
     parts = [
         static(version, "critic"),
@@ -95,7 +101,9 @@ def _request_values(request: SimplifyRequest) -> dict[str, str]:
     vote = request.vote
     return {
         "title": untrusted(request.title),
-        "submitters": "\n".join(f"- {untrusted(s.name)} ({untrusted(s.party)})" for s in request.submitters),
+        "submitters": "\n".join(
+            f"- {untrusted(s.name)} ({untrusted(s.party)})" for s in request.submitters
+        ),
         "vote_date": vote.date.isoformat(),
         "vote_outcome": vote.outcome,
         "votes_for": _format_parties(vote.for_),

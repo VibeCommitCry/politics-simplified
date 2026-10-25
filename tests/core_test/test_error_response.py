@@ -15,7 +15,9 @@ def assert_valid_error_response(response, request_):
 
 
 def test_every_model_unavailable(request_):
-    response = pipeline.run(request_, [entry("first-model")], lambda e: FakeClient([FakeStatusError(503)]))
+    response = pipeline.run(
+        request_, [entry("first-model")], lambda e: FakeClient([FakeStatusError(503)])
+    )
 
     parsed = assert_valid_error_response(response, request_)
     assert "no model available" in parsed.error
@@ -23,7 +25,9 @@ def test_every_model_unavailable(request_):
 
 def test_run_failed_on_a_timeout(request_):
     first = entry("first-model")
-    response = pipeline.run(request_, [first], lambda e: FakeClient([TimeoutError("read timed out")]))
+    response = pipeline.run(
+        request_, [first], lambda e: FakeClient([TimeoutError("read timed out")])
+    )
 
     parsed = assert_valid_error_response(response, request_)
     assert "TimeoutError" in parsed.error

@@ -149,5 +149,7 @@ class SimplifyResponse(BaseModel):
                 raise ValueError("critic_passed must be false when error is set")
             return self
         if not self.hook or self.detail is None or not self.topics or self.relevance is None:
-            raise ValueError("hook, detail, topics and relevance are required when there is no error")
+            raise ValueError(
+                "hook, detail, topics and relevance are required when there is no error"
+            )
         return self

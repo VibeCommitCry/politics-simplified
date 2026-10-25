@@ -24,7 +24,7 @@ python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python -m simplifier --file tests/samples/input-example.json   # one request JSON in, one response JSON on stdout
 ```
 
-Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. There is no linter.
+Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. Lint and format with Ruff (config in `ruff.toml`, line length 100): `.venv\Scripts\ruff check` and `.venv\Scripts\ruff format`.
 
 ```
 .venv\Scripts\pytest                                                   # all tests, no API key needed

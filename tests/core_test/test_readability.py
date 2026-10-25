@@ -25,12 +25,16 @@ def test_readability_leaves_out_the_word_list():
 
 def test_dutch_score_is_higher_for_simpler_text():
     simple = "De kat zit op de mat. Het is warm."
-    hard = "Overwegende dat de regering onvoldoende uitvoeringsmogelijkheden heeft geïnventariseerd."
+    hard = (
+        "Overwegende dat de regering onvoldoende uitvoeringsmogelijkheden heeft geïnventariseerd."
+    )
     assert readability.flesch_douma(simple) > readability.flesch_douma(hard)
 
 
 def test_error_response_has_no_readability(request_):
-    response = pipeline.run(request_, [entry("first-model")], lambda e: FakeClient([FakeStatusError(503)]))
+    response = pipeline.run(
+        request_, [entry("first-model")], lambda e: FakeClient([FakeStatusError(503)])
+    )
 
     assert response.error is not None
     assert response.readability is None

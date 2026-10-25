@@ -162,7 +162,9 @@ def test_difficult_word_with_an_empty_field_is_rejected(answer, field):
 
 
 def test_difficult_word_with_an_extra_field_is_rejected(answer):
-    answer["detail"]["moeilijke_woorden"] = [{"woord": "motie", "betekenis": "verzoek", "bron": "x"}]
+    answer["detail"]["moeilijke_woorden"] = [
+        {"woord": "motie", "betekenis": "verzoek", "bron": "x"}
+    ]
     with pytest.raises(ValidationError):
         validate_answer(answer)
 
@@ -314,4 +316,6 @@ def test_error_response_with_empty_content_is_valid():
 
 def test_error_response_cannot_have_passed():
     with pytest.raises(ValidationError):
-        SimplifyResponse(case_id="2026Z00001", prompt_version=PROMPT_VERSION, error="boom", critic_passed=True)
+        SimplifyResponse(
+            case_id="2026Z00001", prompt_version=PROMPT_VERSION, error="boom", critic_passed=True
+        )
