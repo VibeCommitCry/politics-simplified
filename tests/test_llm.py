@@ -324,6 +324,31 @@ def test_critic_503_restarts_the_run_on_the_next_model(request_):
     assert cooldown.cooldown_status(first) == 503
 
 
+def test_prompts_are_not_shared_between_runs(request_):
+    first = entry("first-model")
+    failing = pipeline.run(request_, [first], lambda e: FakeClient([FakeStatusError(400)]))
+    response = pipeline.run(request_, [first], lambda e: FakeClient())
+
+    assert failing.prompts.critic == ""  # the critic was never reached
+    assert response.prompts.critic != ""
+    assert failing.prompts is not response.prompts
+
+
+def test_fatal_error_in_round_two_keeps_the_prompts(request_):
+    first = entry("first-model")
+    client = FakeClient(
+        failures=[json.dumps(GOOD_ANSWER), FakeStatusError(400)],
+        verdicts=[fail_verdict("De datum klopt niet.")],
+    )
+
+    response = pipeline.run(request_, [first], lambda e: client)
+
+    assert "400" in response.error
+    assert response.model == first.model
+    assert "De datum klopt niet." in response.prompts.writer  # the round 2 writer prompt
+    assert CRITIC_PROMPT_MARK in response.prompts.critic  # from round 1
+
+
 def test_inconsistent_verdict_is_retried(request_):
     first = entry("first-model")
     client = FakeClient(verdicts=[json.dumps({"passed": True, "confidence": 0.9, "problems": ["x"]})])

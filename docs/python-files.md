@@ -163,7 +163,14 @@ Any other failure (a timeout, a missing key) ends the run with an error and does
 
 `run` also accepts its own list of models and its own function for making clients. That is how the tests run it with fake clients and without an API key.
 
-Everything happens inside one `try`. Whatever goes wrong (no key, the provider is down, the answer is not JSON, the hook is too long) is caught and turned into an error response. `run` never raises, which is what lets the service promise valid JSON every time.
+The error handling is split into layers, each with one job:
+
+- **`run`** is only the safety net. It catches `RunFailed` and turns it into an error response with the model and the prompts it carries. A final `except Exception` catches everything else (for example a broken `models.yaml`), so `run` never raises. That is what lets the service promise valid JSON every time.
+- **`_first_available_model`** is the loop over the models: it skips models in cooldown, starts the cooldown on 429/503, and moves on after two bad generations. When no model is left it raises `RunFailed("no model available: …")`.
+- **`_falls_through(exc)`** only decides: True for a failure that hands the run to the next model (a bad generation, 429 or 503). It has no side effects.
+- **`_run_with_model`** does the rounds with its own fresh `Prompts()`. A failure that falls through is passed on as is. Any other failure becomes `RunFailed` with the prompts built so far, so the error response shows what was sent.
+
+Error messages keep the form `Type: message`.
 
 Because there is no critic yet, a successful run still reports `critic_passed: false`, `confidence: 0.0` and `rounds: 1`.
 
