@@ -10,6 +10,8 @@ from openai import OpenAI
 from pydantic import ValidationError
 
 from simplifier.core.writer import _write
+from simplifier.core.critic import _review
+
 
 from ..ai.client import client_for
 from ..ai.registry import ModelEntry, load_models
@@ -22,11 +24,8 @@ from ..limits.cooldown import (
     start_cooldown,
 )
 from ..prompt.builder import PROMPT_VERSION, build_critic_prompt, build_writer_prompt
-from . import critic
 from .generation import (
-    VALIDATION_FAILED,
     BadGeneration,
-    complete_json,
     log_bad_generation,
 )
 from .readability import readability
@@ -36,7 +35,6 @@ BAD_GENERATION_ATTEMPTS = 2
 
 MAX_ROUNDS = 3
 
-WRITER_TEMPERATURE = 0.3
 
 T = TypeVar("T")
 
@@ -131,12 +129,10 @@ def _run_with_model(
         output = _with_retry(
             entry, lambda: _write(request, entry, client, prompts.writer)
         )
-        
+
         prompts.critic = build_critic_prompt(request, output)
-        
-        verdict = _with_retry(
-            entry, lambda: critic.review(entry, client, prompts.critic)
-        )
+
+        verdict = _with_retry(entry, lambda: _review(entry, client, prompts.critic))
         log_round(
             entry,
             round_,
@@ -146,6 +142,7 @@ def _run_with_model(
         )
         if verdict.passed:
             break
+        
     return SimplifyResponse(
         case_id=request.case_id,
         hook=output.hook,

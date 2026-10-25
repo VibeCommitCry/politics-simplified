@@ -5,15 +5,15 @@ from pydantic import ValidationError
 
 from ..ai.registry import ModelEntry
 from ..api.schemas import CriticOutput
-from .generation import VALIDATION_FAILED, BadGeneration, complete_json
+from .generation import VALIDATION_FAILED, BadGeneration, prompt_to_json
 
 # The critic judges rather than writes, so it gets no room to vary.
 CRITIC_TEMPERATURE = 0.0
 
 
-def review(entry: ModelEntry, client: OpenAI, critic_prompt: str) -> CriticOutput:
+def _review(entry: ModelEntry, client: OpenAI, critic_prompt: str) -> CriticOutput:
     """One critic attempt. Raises BadGeneration for an unusable verdict."""
-    content = complete_json(entry, client, critic_prompt, CRITIC_TEMPERATURE)
+    content = prompt_to_json(entry, client, critic_prompt, CRITIC_TEMPERATURE)
     try:
         return CriticOutput.model_validate_json(content)
     except ValidationError as exc:

@@ -30,7 +30,7 @@ def log_bad_generation(entry: ModelEntry, code: str, text: str) -> None:
     )
 
 
-def complete_json(entry: ModelEntry, client: OpenAI, prompt: str, temperature: float) -> str:
+def prompt_to_json(entry: ModelEntry, client: OpenAI, prompt: str, temperature: float) -> str:
     """Sends the prompt as one user message in JSON mode and returns the answer text.
 
     Waits for the model's rate limit first. Raises BadGeneration when the provider
