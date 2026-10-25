@@ -5,7 +5,15 @@
 TEXT_BEGIN = "<<<MOTIETEKST_BEGIN>>>"
 TEXT_END = "<<<MOTIETEKST_EINDE>>>"
 
+# Model output (the writer's answer, the critic's problems) is untrusted too.
+ANSWER_BEGIN = "<<<ANTWOORD_BEGIN>>>"
+ANSWER_END = "<<<ANTWOORD_EINDE>>>"
+
+MARKERS = (TEXT_BEGIN, TEXT_END, ANSWER_BEGIN, ANSWER_END)
+
 
 def untrusted(value: str) -> str:
-    """Removes the markers from external text so it cannot close the data block itself."""
-    return value.replace(TEXT_BEGIN, "").replace(TEXT_END, "").strip()
+    """Removes the markers from external text so it cannot close a data block itself."""
+    for marker in MARKERS:
+        value = value.replace(marker, "")
+    return value.strip()
