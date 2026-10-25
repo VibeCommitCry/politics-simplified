@@ -8,7 +8,7 @@ from .generation import VALIDATION_FAILED, BadGeneration, prompt_to_json
 WRITER_TEMPERATURE = 0.3
 
 
-def _write(
+def write(
     request: SimplifyRequest, entry: ModelEntry, client: OpenAI, writer_prompt: str
 ) -> WriterOutput:
     """One writer attempt. Raises BadGeneration for an unusable answer."""

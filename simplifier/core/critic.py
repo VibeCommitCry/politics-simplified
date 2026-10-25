@@ -11,7 +11,7 @@ from .generation import VALIDATION_FAILED, BadGeneration, prompt_to_json
 CRITIC_TEMPERATURE = 0.0
 
 
-def _review(entry: ModelEntry, client: OpenAI, critic_prompt: str) -> CriticOutput:
+def review(entry: ModelEntry, client: OpenAI, critic_prompt: str) -> CriticOutput:
     """One critic attempt. Raises BadGeneration for an unusable verdict."""
     content = prompt_to_json(entry, client, critic_prompt, CRITIC_TEMPERATURE)
     try:

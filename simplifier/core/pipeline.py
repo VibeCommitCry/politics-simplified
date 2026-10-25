@@ -19,10 +19,10 @@ from ..limits.cooldown import (
     start_cooldown,
 )
 from ..prompt.builder import PROMPT_VERSION, build_critic_prompt, build_writer_prompt
-from .critic import _review
+from .critic import review
 from .generation import BadGeneration, log_bad_generation
 from .readability import readability
-from .writer import _write
+from .writer import write
 
 # A model gets this many tries per call to produce a usable answer before the next model takes over.
 BAD_GENERATION_ATTEMPTS = 2
@@ -109,11 +109,11 @@ def _run_with_model(
                 request, previous=output, problems=verdict.problems if verdict else None
             )
             output = _with_retry(
-                entry, lambda: _write(request, entry, client, prompts.writer)
+                entry, lambda: write(request, entry, client, prompts.writer)
             )
 
             prompts.critic = build_critic_prompt(request, output)
-            verdict = _with_retry(entry, lambda: _review(entry, client, prompts.critic))
+            verdict = _with_retry(entry, lambda: review(entry, client, prompts.critic))
             log_round(
                 entry,
                 round_,
