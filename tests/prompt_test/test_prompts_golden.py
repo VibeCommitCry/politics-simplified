@@ -11,7 +11,7 @@ import pytest
 from simplifier.api.schemas import SimplifyRequest, WriterOutput
 from simplifier.prompt.builder import build_critic_prompt, build_writer_prompt
 
-GOLDEN_DIR = Path(__file__).parent / "golden"
+GOLDEN_DIR = Path(__file__).parents[1] / "golden"
 
 TEXT = (
     "De Kamer,\n\n"

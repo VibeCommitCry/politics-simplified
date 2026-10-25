@@ -5,7 +5,7 @@ from string import Template
 import pytest
 
 from simplifier.prompt import builder
-from test_prompts_golden import PREVIOUS, PROBLEMS, REQUEST_EMPTY_AGAINST
+from tests.prompt_test.test_prompts_golden import PREVIOUS, PROBLEMS, REQUEST_EMPTY_AGAINST
 
 VERSION_DIR = builder.PROMPTS_DIR / builder.PROMPT_VERSION
 STATIC = {"writer", "critic"}
