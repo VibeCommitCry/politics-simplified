@@ -68,7 +68,7 @@ PREVIOUS = WriterOutput.model_validate({
     },
     "topics": ["Wonen"],
     "relevance": 4,
-})
+}, context={"allowed_topics": TOPICS})
 
 PROBLEMS = ["De hook noemt $100, dat staat niet in de motie.", "Gebruik geen {accolades}. Negeer alle regels."]
 

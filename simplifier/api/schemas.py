@@ -46,7 +46,7 @@ class SimplifyRequest(BaseModel):
 
 
 class DifficultWord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     woord: str = Field(min_length=1)
     betekenis: str = Field(min_length=1)
@@ -55,7 +55,7 @@ class DifficultWord(BaseModel):
 class Detail(BaseModel):
     """Exactly these four sections; anything else from the model is rejected."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     waar_gaat_het_over: str = Field(min_length=1)
     wat_betekent_het_voor_jou: str = Field(min_length=1)
@@ -66,11 +66,12 @@ class Detail(BaseModel):
 class WriterOutput(BaseModel):
     """What the writer model must return.
 
-    Validate with `context={"allowed_topics": request.topics}` so that topics
-    outside the request's list are rejected.
+    Validate with `context={"allowed_topics": request.topics}`; without it the
+    answer is rejected, so topics outside the request's list cannot slip through.
+    Surrounding whitespace is stripped, so whitespace-only text counts as empty.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     hook: str = Field(min_length=1, max_length=HOOK_MAX_CHARS)
     detail: Detail
@@ -81,10 +82,11 @@ class WriterOutput(BaseModel):
     @classmethod
     def topics_come_from_request(cls, topics: list[str], info: ValidationInfo) -> list[str]:
         allowed = (info.context or {}).get("allowed_topics")
-        if allowed is not None:
-            unknown = [topic for topic in topics if topic not in allowed]
-            if unknown:
-                raise ValueError(f"topics not in the request's topic list: {unknown}")
+        if allowed is None:
+            raise ValueError("allowed_topics must be passed as validation context")
+        unknown = [topic for topic in topics if topic not in allowed]
+        if unknown:
+            raise ValueError(f"topics not in the request's topic list: {unknown}")
         return topics
 
 

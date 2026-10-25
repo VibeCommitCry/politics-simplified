@@ -1,9 +1,5 @@
 """The contract rules that are enforced in code: one test per rule, each changing one field
-of a valid base.
-
-Two groups fail until the schema is fixed: a missing `allowed_topics` context must be
-rejected, and whitespace-only text must be rejected.
-"""
+of a valid base."""
 
 import copy
 import json
@@ -100,7 +96,6 @@ def test_no_topics_are_rejected(answer):
 
 
 def test_missing_allowed_topics_context_is_rejected(answer):
-    # Fails until the schema raises when `allowed_topics` is not passed.
     with pytest.raises(ValidationError):
         WriterOutput.model_validate(answer)
 
@@ -179,7 +174,6 @@ def test_extra_top_level_key_is_rejected(answer):
 
 
 # --- WriterOutput: whitespace-only text ------------------------------------------
-# These fail until the schema strips whitespace (str_strip_whitespace).
 
 
 def test_whitespace_only_hook_is_rejected(answer):
