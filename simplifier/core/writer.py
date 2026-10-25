@@ -14,8 +14,6 @@ def write(
     """One writer attempt. Raises BadGeneration for an unusable answer."""
     content = prompt_to_json(entry, client, writer_prompt, WRITER_TEMPERATURE)
     try:
-        return WriterOutput.model_validate_json(
-            content, context={"allowed_topics": request.topics}
-        )
+        return WriterOutput.model_validate_json(content, context={"allowed_topics": request.topics})
     except ValidationError as exc:
         raise BadGeneration(VALIDATION_FAILED, content, str(exc)) from exc

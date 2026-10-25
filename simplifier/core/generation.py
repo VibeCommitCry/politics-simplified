@@ -25,7 +25,8 @@ class BadGeneration(Exception):
 def log_bad_generation(entry: ModelEntry, code: str, text: str) -> None:
     """Logs a rejected answer with the start of whatever text the model returned."""
     print(
-        f"bad generation from model {entry.name}: {code}, returned text: {text[:BAD_TEXT_LOG_CHARS]!r}",
+        f"bad generation from model {entry.name}: {code}, "
+        f"returned text: {text[:BAD_TEXT_LOG_CHARS]!r}",
         file=sys.stderr,
     )
 
@@ -48,7 +49,10 @@ def prompt_to_json(entry: ModelEntry, client: OpenAI, prompt: str, temperature: 
         completion = client.chat.completions.create(**arguments)
     except Exception as exc:
         # Some providers check the JSON themselves and answer 400 instead of returning the text.
-        if getattr(exc, "status_code", None) == 400 and getattr(exc, "code", None) == JSON_VALIDATE_FAILED:
+        if (
+            getattr(exc, "status_code", None) == 400
+            and getattr(exc, "code", None) == JSON_VALIDATE_FAILED
+        ):
             raise BadGeneration(JSON_VALIDATE_FAILED, _failed_generation(exc), str(exc)) from exc
         raise
     return completion.choices[0].message.content or ""
@@ -60,5 +64,7 @@ def _failed_generation(exc: Exception) -> str:
     if not isinstance(body, dict):
         return ""
     nested = body.get("error")
-    text = body.get("failed_generation") or (nested.get("failed_generation") if isinstance(nested, dict) else "")
+    text = body.get("failed_generation") or (
+        nested.get("failed_generation") if isinstance(nested, dict) else ""
+    )
     return text or ""

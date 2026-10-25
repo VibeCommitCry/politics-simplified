@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 read.json
+.coverage
