@@ -4,7 +4,6 @@ when one is busy or writes something unusable."""
 import sys
 import time
 from collections.abc import Callable
-from typing import TypeVar
 
 from openai import OpenAI
 
@@ -29,15 +28,15 @@ BAD_GENERATION_ATTEMPTS = 2
 
 MAX_ROUNDS = 3
 
-T = TypeVar("T")
-
 
 def run(
     request: SimplifyRequest,
     models: list[ModelEntry] | None = None,
     client_factory=client_for,
 ) -> SimplifyResponse:
-    """Writes and checks the hook and detail text for one motie. Never raises: failures end up in `error`.
+    """Writes and checks the hook and detail text for one motie.
+
+    Never raises: failures end up in `error`.
 
     `models` and `client_factory` can be passed in to run without models.yaml or an API key (tests).
     """
@@ -45,9 +44,7 @@ def run(
         models = models if models is not None else load_models()
         return _first_available_model(request, models, client_factory)
     except RunFailed as failed:
-        return error_response(
-            request.case_id, failed.message, failed.entry, failed.prompts
-        )
+        return error_response(request.case_id, failed.message, failed.entry, failed.prompts)
     except Exception as exc:
         return error_response(request.case_id, _describe(exc))
 
@@ -93,7 +90,9 @@ def _first_available_model(
 def _run_with_model(
     request: SimplifyRequest, entry: ModelEntry, client: OpenAI
 ) -> SimplifyResponse:
-    """Up to MAX_ROUNDS of writer then critic, all on this model. `prompts` keeps the last round's prompts.
+    """Up to MAX_ROUNDS of writer then critic, all on this model.
+
+    `prompts` keeps the last round's prompts.
 
     Not passing after the last round is not an error: the answer goes back for manual review.
     A failure that falls through to the next model is re-raised as is; any other one becomes
@@ -108,9 +107,7 @@ def _run_with_model(
             prompts.writer = build_writer_prompt(
                 request, previous=output, problems=verdict.problems if verdict else None
             )
-            output = _with_retry(
-                entry, lambda: write(request, entry, client, prompts.writer)
-            )
+            output = _with_retry(entry, lambda: write(request, entry, client, prompts.writer))
 
             prompts.critic = build_critic_prompt(request, output)
             verdict = _with_retry(entry, lambda: review(entry, client, prompts.critic))
@@ -147,7 +144,7 @@ def _run_with_model(
     )
 
 
-def _with_retry(entry: ModelEntry, attempt: Callable[[], T]) -> T:
+def _with_retry[T](entry: ModelEntry, attempt: Callable[[], T]) -> T:
     """Calls `attempt` up to BAD_GENERATION_ATTEMPTS times; re-raises the last BadGeneration."""
     for tries_left in range(BAD_GENERATION_ATTEMPTS - 1, -1, -1):
         try:
@@ -170,10 +167,7 @@ def log_round(
 
 def _falls_through(exc: Exception) -> bool:
     """True for a failure that hands the run to the next model: a bad generation, or 429/503."""
-    return (
-        isinstance(exc, BadGeneration)
-        or getattr(exc, "status_code", None) in COOLDOWN_STATUSES
-    )
+    return isinstance(exc, BadGeneration) or getattr(exc, "status_code", None) in COOLDOWN_STATUSES
 
 
 def _describe(exc: Exception) -> str:

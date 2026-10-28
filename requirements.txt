@@ -1,6 +1,6 @@
+fastapi[standard]
 openai
 pydantic>=2
 python-dotenv
 pyyaml
 textstat
-pytest

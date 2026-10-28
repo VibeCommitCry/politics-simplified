@@ -1,21 +1,34 @@
 # politics-simplified
 
+[![CI](https://github.com/VibeCommitCry/politics-simplified/actions/workflows/ci.yml/badge.svg)](https://github.com/VibeCommitCry/politics-simplified/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.14-blue)
+
 A stateless Python service that turns one voted Tweede Kamer motie into plain Dutch (B1 level) for a mobile feed: a short hook, a detailed text in four fixed sections, topics and a relevance score.
 
-It has no database and fetches nothing itself. A separate Symfony backend collects the Tweede Kamer data, sends one motie per request and stores the result. The full design is in [repo2-politics-simplified-plan.md](repo2-politics-simplified-plan.md).
-
-Status: only the test mode with the writer exists. The critic, the readability scores and the HTTP service are not built yet.
+It has no database and fetches nothing itself. A separate Symfony backend collects the Tweede Kamer data, sends one motie per request and stores the result. To connect it to the backend, see [docs/symfony-integration.md](docs/symfony-integration.md).
 
 ## Setup
 
 ```
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt     # requirements.txt alone is the runtime set
 copy .env.example .env          # macOS/Linux: cp .env.example .env
 ```
 
 Put your API key in `.env`. The writer uses the first model in `models.yaml` (`GEMINI_API_KEY`) and moves on to the next ones when a model is busy, so fill in the keys for all models you want as a fallback.
+
+## Run as a service
+
+Set `SIMPLIFY_API_KEY` in `.env` (the service refuses to start without it), then:
+
+```
+docker network create Social-Politics    # once
+docker compose up --build
+```
+
+The service listens on `127.0.0.1:8000` through `docker-compose.override.yml` and is otherwise only reachable on the `Social-Politics` network. `POST /simplify` needs the `X-Api-Key` header; `GET /health` does not. Without Docker: `uvicorn simplifier.api.app_api:app` (one worker only).
 
 ## Test mode
 

@@ -1,0 +1,9 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+# E/W: pycodestyle, F: pyflakes, I: import order, B: likely bugs, UP: newer syntax.
+select = ["E", "W", "F", "I", "B", "UP"]
+
+[lint.isort]
+known-first-party = ["simplifier", "tests"]

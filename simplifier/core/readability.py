@@ -14,7 +14,9 @@ def flesch_douma(text: str) -> float:
 
 def detail_text(detail: Detail) -> str:
     """The three prose sections; the word list is not running text and would skew the score."""
-    return "\n\n".join([detail.waar_gaat_het_over, detail.wat_betekent_het_voor_jou, detail.wat_is_er_besloten])
+    return "\n\n".join(
+        [detail.waar_gaat_het_over, detail.wat_betekent_het_voor_jou, detail.wat_is_er_besloten]
+    )
 
 
 def readability(original: str, detail: Detail) -> Readability:

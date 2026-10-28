@@ -5,7 +5,7 @@ from string import Template
 import pytest
 
 from simplifier.prompt import builder
-from test_prompts_golden import PREVIOUS, PROBLEMS, REQUEST_EMPTY_AGAINST
+from tests.prompt_test.test_prompts_golden import PREVIOUS, PROBLEMS, REQUEST_EMPTY_AGAINST
 
 VERSION_DIR = builder.PROMPTS_DIR / builder.PROMPT_VERSION
 STATIC = {"writer", "critic"}
@@ -43,7 +43,9 @@ def test_static_files_have_no_placeholders(name):
 
 def test_missing_placeholder_raises():
     with pytest.raises(KeyError):
-        builder.render(builder.PROMPT_VERSION, "feedback", answer_begin="", answer_end="", previous="")
+        builder.render(
+            builder.PROMPT_VERSION, "feedback", answer_begin="", answer_end="", previous=""
+        )
 
 
 def test_dollar_and_braces_in_values_come_through_unchanged():

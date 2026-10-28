@@ -2,7 +2,10 @@ from enum import StrEnum, auto
 
 
 class OutputData(StrEnum):
-    """The JSON keys the writer must answer with. Values match WriterOutput, so Symfony's contract stays fixed."""
+    """The JSON keys the writer must answer with.
+
+    Values match WriterOutput, so Symfony's contract stays fixed.
+    """
 
     HOOK = auto()
     DETAIL = auto()
