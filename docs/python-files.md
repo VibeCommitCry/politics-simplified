@@ -1,6 +1,6 @@
 # What each Python file does
 
-This describes the code as it is after step 1 of the plan (the test mode with the writer only), plus the fallback to the next model when one is busy. There is no critic and no HTTP service yet.
+This describes the code as it is now: the test mode, the writer and critic loop, the fallback to the next model when one is busy, and the FastAPI service.
 
 All Python code lives in the `simplifier/` package, split into folders by layer.
 
@@ -8,6 +8,7 @@ All Python code lives in the `simplifier/` package, split into folders by layer.
 |---|---|
 | `__init__.py` | Marks the folder as a package and defines `REPO_ROOT` |
 | `__main__.py` | The command you run: reads a request file, prints a response |
+| `api/app_api.py` | The FastAPI service: `POST /simplify` (needs `X-Api-Key`) and `GET /health` |
 | `api/schemas.py` | Defines the shape of the request and the response, and checks the rules |
 | `api/enums/` | The keys of the prompt's data block and of the writer's JSON answer |
 | `ai/registry.py` | Reads `models.yaml` |
@@ -64,7 +65,7 @@ Nothing else is ever printed to stdout, so the output can always be parsed as JS
 
 ## `api/schemas.py`: the contract and the rules
 
-This file uses pydantic. A pydantic model is a class that describes what a piece of JSON must look like; when you validate data against it, pydantic either gives you a typed object or raises an error that says exactly which field is wrong. This is how the plan's "rules checked in code, not only in the prompt" are enforced.
+This file uses pydantic. A pydantic model is a class that describes what a piece of JSON must look like; when you validate data against it, pydantic either gives you a typed object or raises an error that says exactly which field is wrong. This is how the rules are checked in code, not only in the prompt.
 
 **The request** (what Symfony sends):
 
@@ -172,9 +173,6 @@ The error handling is split into layers, each with one job:
 
 Error messages keep the form `Type: message`.
 
-Because there is no critic yet, a successful run still reports `critic_passed: false`, `confidence: 0.0` and `rounds: 1`.
-
 ## What is not here yet
 
-- **Step 2:** the critic, the loop of up to 3 rounds and `core/readability.py`.
-- **Step 3:** `api/app.py` (the FastAPI service), the Dockerfile and the tests for the pydantic rules.
+Nothing from the original three steps. The HTTP service is `api/app_api.py`; `docs/symfony-integration.md` explains how the backend calls it.

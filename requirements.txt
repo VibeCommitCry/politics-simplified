@@ -4,5 +4,3 @@ pydantic>=2
 python-dotenv
 pyyaml
 textstat
-pytest
-ruff

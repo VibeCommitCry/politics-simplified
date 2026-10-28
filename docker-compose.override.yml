@@ -1,0 +1,6 @@
+# Local testing only: docker compose reads this file automatically.
+# Publishes the service on this machine, never on the network.
+services:
+    simplify:
+        ports:
+            - "127.0.0.1:8000:8000"
