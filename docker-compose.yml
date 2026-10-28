@@ -1,0 +1,29 @@
+services:
+    simplify:
+        build: .
+        # Required: holds the model keys and SIMPLIFY_API_KEY. Copy .env.example to .env first.
+        env_file: .env
+        # Internal network only. docker-compose.override.yml publishes a port for local testing.
+        expose:
+            - "8000"
+        restart: unless-stopped
+        mem_limit: 512m
+        logging:
+            driver: json-file
+            options:
+                max-size: 10m
+                max-file: "3"
+        healthcheck:
+            # The slim image has no curl.
+            test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 10s
+        networks:
+            - Social-Politics
+
+networks:
+    Social-Politics:
+        # Shared with the Symfony stack. Create it once: docker network create Social-Politics
+        external: true

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-`repo2-politics-simplified-plan.md` is leading: read it before changing behaviour. It is built in three steps (its section 12, prompts 1 to 3). **Steps 1 and 2 are done**: test mode, the writer ⇄ critic loop (max 3 rounds), readability, and fallback to the next model on status 429/503 with a cooldown and a per-model rate limit. Not built yet (step 3): FastAPI, Docker, the remaining pytest tests. Build only the step asked for.
+All three build steps are done: test mode, the writer ⇄ critic loop (max 3 rounds), readability, fallback to the next model on status 429/503 with a cooldown and a per-model rate limit, the FastAPI service and the Docker setup. The original design plan is no longer in the repo; this file and `docs/` are the source of truth.
 
 ## What this is
 
@@ -20,8 +20,10 @@ It is the AI half of a larger system. A separate Symfony (PHP, MySQL) backend fe
 ## Commands
 
 ```
-python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
+python -m venv .venv && .venv\Scripts\pip install -r requirements-dev.txt   # requirements.txt is the runtime set (Docker)
 .venv\Scripts\python -m simplifier --file tests/samples/input-example.json   # one request JSON in, one response JSON on stdout
+.venv\Scripts\uvicorn simplifier.api.app_api:app   # the HTTP service; needs SIMPLIFY_API_KEY in .env
+docker compose up --build   # same, in Docker (run `docker network create Social-Politics` once)
 ```
 
 Needs the first model's key (`GEMINI_API_KEY`) in `.env` (see `.env.example`); without it the command prints an error response and exits 1. Lint and format with Ruff (config in `ruff.toml`, line length 100): `.venv\Scripts\ruff check` and `.venv\Scripts\ruff format`.
@@ -37,13 +39,14 @@ To exercise the pipeline without a key or `models.yaml`, pass your own entries a
 
 The package is split by layer: `api/` (contract), `core/` (pipeline with the critic loop, critic, readability), `prompt/`, `ai/` (models and clients), `limits/` (rate limit and cooldown). `REPO_ROOT` lives in `simplifier/__init__.py`.
 
-- `simplifier/api/schemas.py` (+ `api/enums/`): the contract. `WriterOutput` is the strict shape the model must return; `SimplifyResponse` is what Symfony stores and allows empty content fields only when `error` is set. Rules are enforced **here in code**, not only in the prompt. The topic check needs the request's list, passed as validation context: `WriterOutput.model_validate(data, context={"allowed_topics": request.topics})`. Step 3's FastAPI app belongs in `api/` too.
+- `simplifier/api/schemas.py` (+ `api/enums/`): the contract. `WriterOutput` is the strict shape the model must return; `SimplifyResponse` is what Symfony stores and allows empty content fields only when `error` is set. Rules are enforced **here in code**, not only in the prompt. The topic check needs the request's list, passed as validation context: `WriterOutput.model_validate(data, context={"allowed_topics": request.topics})`. `api/app_api.py` is the FastAPI app (see its entry below).
 - `simplifier/ai/`: `registry.py` loads `models.yaml` (ordered list of OpenAI-compatible endpoints); `client.py` returns an `openai` client for one entry, always with `max_retries=0`. An entry's optional `options` map is passed as extra arguments to `chat.completions.create` and overrides the defaults. `provider` in the response is the part of the entry's `name` before the first dash.
 - `simplifier/limits/`: the in-memory, per-model state. `rate_limiter.py` is a sliding-window limiter (optional `rpm` per entry; calls wait rather than exceed it); `cooldown.py` holds the 60 s cooldowns. `limits.reset_state()` clears both (tests).
 - `simplifier/prompt/`: `builder.py` (`build_writer_prompt`, `build_critic_prompt`, `PROMPT_VERSION`) joins the fixed `prompts/v1/writer.md` / `critic.md` with templates from the same directory (`data.md`, `feedback.md`, `answer.md`, `critic_answer.md`) filled with `string.Template`: lowercase placeholders are runtime values, UPPERCASE ones are JSON keys from the enums in `api/enums/`, a literal `$` is `$$`, and a missing value raises `KeyError`. No prompt text lives in Python. `tests/golden/` holds snapshots of the full prompts; regenerate them with `UPDATE_GOLDENS=1` only for an intended prompt change. From round 2 the writer prompt also gets its previous answer and the critic's problems; every call is one stateless user message. `sanitize.py` holds the untrusted-text markers.
 - `simplifier/core/pipeline.py`: `run` tries the models in order and turns any exception into an error response. One model does the whole run: up to 3 rounds of writer then critic (`core/critic.py`, temperature 0, returns `CriticOutput`), stopping when the critic passes. Not passing after round 3 is not an error: the content is returned with `critic_passed: false` for manual review. The response holds the last round's verdict, confidence and prompts. Each round logs `round model=… round=N passed=… confidence=… duration=…s` to stderr. A model that answers 429 or 503 goes into cooldown and the run restarts from round 1 with the next one; models in cooldown are skipped; each skip is logged to stderr. A bad generation (the answer fails pydantic validation, or the API answers 400 with code `json_validate_failed`) is retried once for that call, then the next model restarts the run without a cooldown; it is logged to stderr with the first 300 characters of the returned text. Any other failure (timeout, missing key) ends the run with an error and does not fall through; it is raised as `RunFailed` carrying the model and the prompts built so far, which go into the error response. The layers: `run` (safety net: `RunFailed`, then a catch-all), `_first_available_model` (model loop, cooldown), `_falls_through` (pure check), `_run_with_model` (rounds, fresh `Prompts()` per call). `core/generation.py` holds the shared JSON call.
 - `simplifier/core/readability.py`: Flesch-Douma (textstat, `nl`) of the motie text (`before`) and of the three prose detail sections without the word list (`after`); `null` on an error.
-- `simplifier/__main__.py`: the `--file` test mode. Step 3's FastAPI endpoint must use the same `pipeline.run`.
+- `simplifier/__main__.py`: the `--file` test mode.
+- `simplifier/api/app_api.py`: the HTTP service on the same `pipeline.run`: `POST /simplify` and `GET /health`. `/simplify` requires the header `X-Api-Key` equal to `SIMPLIFY_API_KEY` (401 with an error response otherwise, checked before the body), and the service refuses to start without that variable. A body that fails validation also gets a valid error response (422). It must run as **one** uvicorn worker, because the rate limiter and cooldowns are in memory. It is not a public API: the container is reachable only on the internal `Social-Politics` network (`docker-compose.override.yml` publishes `127.0.0.1:8000` for local testing). How Symfony connects is in `docs/symfony-integration.md`.
 - `prompts/v1/`: all versioned prompt text (LF line endings, enforced by `.gitattributes`); substituted values are never re-scanned, so nothing in the motie text is ever parsed as a template. A prompt change that alters output means a new version directory.
 
 Rules that span files:
